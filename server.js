@@ -193,35 +193,14 @@ app.get("/towers", async (req, res) => {
     const conn = await connectRouter();
 
     const arp = await conn.write("/ip/arp/print");
-    const neighbor = await conn.write("/ip/neighbor/print");
 
     await conn.close();
 
-    const list = [];
-
-    arp.forEach(a => {
-      if (a.address) {
-        list.push({
-          name: "جهاز شبكة",
-          ip: a.address,
-          type: a["mac-address"] || "Unknown",
-          status: "online",
-          last: "الآن"
-        });
-      }
-    });
-
-    neighbor.forEach(n => {
-      if (n.address) {
-        list.push({
-          name: n.identity || "MikroTik",
-          ip: n.address,
-          type: n.platform || "Router",
-          status: "online",
-          last: "الآن"
-        });
-      }
-    });
+    // فلترة فقط شبكة 172.16.0.0/16
+    const list = arp.filter(d =>
+      d.address &&
+      d.address.startsWith("172.16.")
+    );
 
     let rows = "";
 
@@ -229,16 +208,147 @@ app.get("/towers", async (req, res) => {
       rows += `
 <tr>
 <td>${i + 1}</td>
-<td>${d.name}</td>
-<td>${d.ip}</td>
-<td>${d.type}</td>
+<td>جهاز شبكة</td>
+<td>${d.address}</td>
+<td>172.16.0.0/16</td>
+<td>${d["mac-address"] || "-"}</td>
 <td style="color:#22c55e">متصل</td>
-<td>${d.last}</td>
+<td>الآن</td>
 </tr>
 `;
     });
 
-    res.send(tablePage("📡 الأبراج والأكسسات", list.length, rows));
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+body{
+background:#08152e;
+font-family:Arial;
+padding:15px;
+margin:0;
+color:white;
+}
+.title{
+font-size:34px;
+text-align:center;
+color:#38bdf8;
+font-weight:bold;
+margin-bottom:20px;
+}
+.card{
+background:#1e293b;
+padding:18px;
+border-radius:18px;
+margin-bottom:15px;
+font-size:26px;
+}
+.green{
+color:#22c55e;
+font-weight:bold;
+}
+input,select{
+width:100%;
+padding:14px;
+border:none;
+border-radius:12px;
+margin-bottom:15px;
+font-size:18px;
+}
+table{
+width:100%;
+border-collapse:collapse;
+background:#12233f;
+border-radius:15px;
+overflow:hidden;
+}
+th,td{
+padding:12px;
+text-align:center;
+font-size:15px;
+border-bottom:1px solid #23344f;
+}
+th{
+background:#334155;
+}
+.note{
+margin-top:15px;
+background:#10243f;
+padding:14px;
+border-radius:12px;
+color:#cbd5e1;
+}
+</style>
+
+<script>
+function searchDevice(){
+let input=document.getElementById("search").value.toLowerCase();
+let rows=document.querySelectorAll("tbody tr");
+
+rows.forEach(row=>{
+row.style.display =
+row.innerText.toLowerCase().includes(input)
+? ""
+: "none";
+});
+}
+</script>
+
+</head>
+<body>
+
+<div class="title">📡 الأبراج والأكسسات</div>
+
+<div class="card">
+إجمالي الأجهزة:
+<span class="green">${list.length}</span>
+</div>
+
+<div class="card">
+تم التصفية:
+<span class="green">172.16.0.0/16 فقط</span>
+</div>
+
+<input
+id="search"
+onkeyup="searchDevice()"
+placeholder="ابحث باسم أو IP..."
+>
+
+<select>
+<option>172.16.0.0/16 فقط</option>
+</select>
+
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>الاسم</th>
+<th>IP</th>
+<th>البوابة</th>
+<th>النوع</th>
+<th>الحالة</th>
+<th>آخر ظهور</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+</table>
+
+<div class="note">
+ℹ يتم عرض الأجهزة التي بوابتها ضمن النطاق:
+<b>172.16.0.0/16</b> فقط
+</div>
+
+</body>
+</html>
+    `);
 
   } catch (error) {
     res.send("فشل قراءة الأجهزة ❌");
