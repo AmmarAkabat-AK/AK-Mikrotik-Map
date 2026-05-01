@@ -443,6 +443,243 @@ ${lines}
   }
 });
 
+
+// دمج Route /towers داخل مشروعك الحالي
+// أضف هذا الكود قبل app.listen
+// وإذا لديك /towers قديم احذفه واستبدله بهذا
+
+app.get("/towers", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+    const neighbor = await conn.write("/ip/neighbor/print");
+
+    await conn.close();
+
+    const list = [];
+    const added = {};
+
+    // ===== ARP =====
+    arp.forEach(a => {
+      if (!a.address) return;
+      if (!a.address.startsWith("172.16.")) return;
+      if (added[a.address]) return;
+
+      added[a.address] = true;
+
+      let type = "📡 جهاز شبكة";
+
+      const mac = (a["mac-address"] || "").toUpperCase();
+
+      if (mac.startsWith("04:18:D6")) type = "📡 Ubiquiti";
+      else if (mac.startsWith("4C:5E:0C")) type = "📶 MikroTik";
+      else if (mac.startsWith("F4:F2:6D")) type = "📡 TP-Link";
+      else if (mac.startsWith("00:E0:4C")) type = "📷 Camera";
+      else if (mac.startsWith("AC:64:62")) type = "📡 Cambium";
+      else if (mac.startsWith("B4:FB:E4")) type = "📱 Android";
+
+      list.push({
+        name: "جهاز مكتشف",
+        ip: a.address,
+        type: type,
+        status: "online",
+        last: "الآن"
+      });
+    });
+
+    // ===== Neighbor =====
+    neighbor.forEach(n => {
+      if (!n.address) return;
+      if (!n.address.startsWith("172.16.")) return;
+      if (added[n.address]) return;
+
+      added[n.address] = true;
+
+      list.push({
+        name: n.identity || "MikroTik",
+        ip: n.address,
+        type: "🛰 " + (n.platform || "Router"),
+        status: "online",
+        last: "الآن"
+      });
+    });
+
+    // ترتيب IP
+    list.sort((a, b) => {
+      const pa = a.ip.split(".").map(Number);
+      const pb = b.ip.split(".").map(Number);
+
+      for (let i = 0; i < 4; i++) {
+        if (pa[i] !== pb[i]) return pa[i] - pb[i];
+      }
+      return 0;
+    });
+
+    let rows = "";
+
+    list.forEach((d, i) => {
+      rows += `
+<tr>
+<td>${i + 1}</td>
+<td>${d.name}</td>
+<td>${d.ip}</td>
+<td>${d.type}</td>
+<td style="color:#22c55e;font-weight:bold">متصل</td>
+<td>${d.last}</td>
+</tr>
+`;
+    });
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+body{
+background:#08152e;
+font-family:Arial;
+padding:15px;
+margin:0;
+color:white;
+}
+.title{
+font-size:34px;
+font-weight:bold;
+text-align:center;
+color:#38bdf8;
+margin-bottom:20px;
+}
+.card{
+background:#1e293b;
+padding:18px;
+border-radius:18px;
+margin-bottom:15px;
+font-size:24px;
+}
+.green{
+color:#22c55e;
+font-weight:bold;
+}
+.small{
+font-size:14px;
+color:#cbd5e1;
+margin-top:8px;
+}
+input{
+width:100%;
+padding:14px;
+border:none;
+border-radius:12px;
+margin-bottom:15px;
+font-size:18px;
+}
+table{
+width:100%;
+border-collapse:collapse;
+background:#12233f;
+border-radius:15px;
+overflow:hidden;
+}
+th,td{
+padding:12px;
+text-align:center;
+font-size:14px;
+border-bottom:1px solid #23344f;
+}
+th{
+background:#334155;
+}
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:15px;
+font-size:18px;
+}
+.grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+margin-top:15px;
+}
+</style>
+
+<script>
+function searchDevice(){
+let input = document.getElementById("search").value.toLowerCase();
+let rows = document.querySelectorAll("tbody tr");
+
+rows.forEach(row=>{
+row.style.display =
+row.innerText.toLowerCase().includes(input)
+? ""
+: "none";
+});
+}
+
+setTimeout(()=>{
+location.reload();
+},10000);
+</script>
+
+</head>
+<body>
+
+<div class="title">📡 الأبراج والأكسسات</div>
+
+<div class="card">
+إجمالي الأجهزة:
+<span class="green">${list.length}</span>
+<div class="small">يتم عرض نطاق 172.16.x.x فقط</div>
+</div>
+
+<input
+id="search"
+onkeyup="searchDevice()"
+placeholder="ابحث باسم أو IP..."
+>
+
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>الاسم</th>
+<th>IP</th>
+<th>النوع</th>
+<th>الحالة</th>
+<th>آخر ظهور</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+</table>
+
+<div class="grid">
+<a class="btn" href="/smart-center">🚀 Smart Center</a>
+<a class="btn" href="/map-live">🗺 الخريطة</a>
+<a class="btn" href="/alerts">🔔 التنبيهات</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+</div>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل قراءة الأجهزة ❌");
+  }
+});
+
 // ================== تشغيل السيرفر ==================
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
