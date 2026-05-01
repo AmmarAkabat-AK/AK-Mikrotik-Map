@@ -21,7 +21,7 @@ app.get("/", (req, res) => {
   res.send("AK-MikroTik-Map Live 🔥");
 });
 
-// اختبار MikroTik
+// اختبار الراوتر
 app.get("/mikrotik-test", async (req, res) => {
   const conn = new RouterOSAPI({
     host: process.env.MIKROTIK_HOST,
@@ -48,7 +48,7 @@ app.get("/mikrotik-test", async (req, res) => {
   }
 });
 
-// Dashboard
+// لوحة التحكم
 app.get("/dashboard", async (req, res) => {
   const conn = new RouterOSAPI({
     host: process.env.MIKROTIK_HOST,
@@ -61,11 +61,9 @@ app.get("/dashboard", async (req, res) => {
     await conn.connect();
 
     const identity = await conn.write("/system/identity/print");
-    const users = await conn.write("/ip/hotspot/active/print");
+    const active = await conn.write("/ip/hotspot/active/print");
 
     await conn.close();
-
-    const total = users.length;
 
     res.send(`
 <!DOCTYPE html>
@@ -73,7 +71,7 @@ app.get("/dashboard", async (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard</title>
+<title>لوحة التحكم</title>
 
 <style>
 body{
@@ -112,90 +110,82 @@ text-decoration:none;
 margin-top:12px;
 font-size:18px;
 }
-.small{
-color:#94a3b8;
-}
 </style>
 </head>
 
 <body>
 
-<div class="title">🔥 AK MikroTik Dashboard</div>
+<div class="title">🔥 لوحة تحكم الشبكة</div>
 
 <div class="card">
-📡 Network Name<br>
+📡 اسم الشبكة<br>
 <div class="num">${identity[0].name}</div>
 </div>
 
 <div class="card">
-🟢 Router Status<br>
-<div class="num">ONLINE</div>
+🟢 حالة الراوتر<br>
+<div class="num">متصل</div>
 </div>
 
 <div class="card">
-👥 Connected Users<br>
-<div class="num">${total}</div>
+👥 المستخدمون الحاليون<br>
+<div class="num">${active.length}</div>
 </div>
 
 <div class="card">
-🌐 Internet Status<br>
-<div class="num">ONLINE</div>
+🕒 آخر تحديث<br>
+<div class="num">${new Date().toLocaleString()}</div>
 </div>
 
-<div class="card">
-🕒 Last Update<br>
-<div class="small">${new Date().toLocaleString()}</div>
-</div>
-
-<a class="btn" href="/devices">📱 Devices</a>
-<a class="btn" href="/mikrotik-test">🧪 Test Router</a>
+<a class="btn" href="/devices">📱 الأجهزة الحقيقية</a>
 
 </body>
 </html>
     `);
 
   } catch (error) {
-    res.send("Router Offline ❌");
+    res.send("الراوتر غير متصل ❌");
   }
 });
 
-// صفحة الأجهزة الاحترافية
+// الأجهزة الحقيقية من MikroTik
 app.get("/devices", async (req, res) => {
-  const { data, error } = await supabase
-    .from("devices")
-    .select("*")
-    .order("id", { ascending: true });
-
-  if (error) {
-    return res.send("Database Error ❌");
-  }
-
-  let rows = "";
-
-  data.forEach(device => {
-    const statusColor =
-      device.status === "online" ? "#22c55e" : "#ef4444";
-
-    rows += `
-<tr>
-<td>${device.id}</td>
-<td>${device.company || "-"}</td>
-<td>${device.ip || "-"}</td>
-<td style="color:${statusColor};font-weight:bold">
-${device.status || "offline"}
-</td>
-<td>${device.last_seen || "-"}</td>
-</tr>
-`;
+  const conn = new RouterOSAPI({
+    host: process.env.MIKROTIK_HOST,
+    user: process.env.MIKROTIK_USER,
+    password: process.env.MIKROTIK_PASS,
+    port: process.env.MIKROTIK_PORT
   });
 
-  res.send(`
+  try {
+    await conn.connect();
+
+    const users = await conn.write("/ip/hotspot/active/print");
+
+    await conn.close();
+
+    let rows = "";
+
+    users.forEach((u, i) => {
+      rows += `
+<tr>
+<td>${i + 1}</td>
+<td>${u.user || "-"}</td>
+<td>${u.address || "-"}</td>
+<td>${u["mac-address"] || "-"}</td>
+<td style="color:#22c55e;font-weight:bold">متصل</td>
+<td>${u.uptime || "-"}</td>
+</tr>
+`;
+    });
+
+    res.send(`
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Devices</title>
+<title>الأجهزة</title>
 
 <style>
 body{
@@ -204,6 +194,7 @@ font-family:Arial;
 padding:15px;
 margin:0;
 color:white;
+direction:rtl;
 }
 .title{
 font-size:28px;
@@ -234,9 +225,9 @@ border-radius:15px;
 overflow:hidden;
 }
 th,td{
-padding:12px;
-font-size:14px;
-text-align:left;
+padding:10px;
+font-size:13px;
+text-align:center;
 border-bottom:1px solid #334155;
 }
 th{
@@ -270,26 +261,27 @@ row.style.display=text.includes(input)?"":"none";
 </head>
 <body>
 
-<div class="title">📱 Devices List</div>
+<div class="title">📱 الأجهزة المتصلة الآن</div>
 
 <div class="card">
-Total Devices: ${data.length}
+إجمالي الأجهزة: ${users.length}
 </div>
 
 <input
 id="search"
 onkeyup="searchDevice()"
-placeholder="Search device..."
+placeholder="ابحث باسم أو IP..."
 >
 
 <table>
 <thead>
 <tr>
-<th>ID</th>
-<th>Name</th>
+<th>#</th>
+<th>الاسم</th>
 <th>IP</th>
-<th>Status</th>
-<th>Last Seen</th>
+<th>MAC</th>
+<th>الحالة</th>
+<th>المدة</th>
 </tr>
 </thead>
 
@@ -298,11 +290,15 @@ ${rows}
 </tbody>
 </table>
 
-<a class="btn" href="/dashboard">⬅ Dashboard</a>
+<a class="btn" href="/dashboard">⬅ رجوع</a>
 
 </body>
 </html>
-  `);
+    `);
+
+  } catch (error) {
+    res.send("فشل قراءة الأجهزة ❌");
+  }
 });
 
 app.listen(PORT, () => {
