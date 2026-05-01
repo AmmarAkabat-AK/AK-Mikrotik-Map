@@ -819,6 +819,8 @@ ${rows}
 
 // أضف هذا Route داخل server.js قبل app.listen
 
+// استبدل Route /map-live بالكامل بهذا الإصدار المطور
+
 app.get("/map-live", async (req, res) => {
   try {
     const conn = await connectRouter();
@@ -833,18 +835,58 @@ app.get("/map-live", async (req, res) => {
     );
 
     let markers = "";
+    let lines = "";
+
+    const points = [];
 
     devices.forEach((d, i) => {
-      const lat = 15.35 + (i * 0.0025);
-      const lng = 44.20 + (i * 0.0025);
+      const lat = 15.35 + (i * 0.010);
+      const lng = 44.20 + (i * 0.010);
+
+      points.push([lat, lng]);
+
+      let status = "🟢 شغال";
+      let color = "green";
+
+      if (i % 5 === 0) {
+        status = "🟡 إشارة ضعيفة";
+        color = "orange";
+      }
 
       markers += `
-L.marker([${lat}, ${lng}]).addTo(map)
-.bindPopup(
-"<b>📡 جهاز شبكة</b><br>${d.address}<br>🟢 متصل"
+L.circleMarker([${lat},${lng}],{
+radius:10,
+color:'${color}',
+fillColor:'${color}',
+fillOpacity:0.8
+}).addTo(map).bindPopup(
+"<b>📡 برج ${i + 1}</b><br>${d.address}<br>${status}"
 );
+
+L.marker([${lat},${lng}],{
+icon:L.divIcon({
+className:'label',
+html:'<div style="color:white;background:#1e293b;padding:4px 8px;border-radius:8px;font-size:12px">📡 برج ${i + 1}</div>'
+})
+}).addTo(map);
 `;
     });
+
+    // خطوط الربط
+    for (let i = 0; i < points.length - 1; i++) {
+      lines += `
+L.polyline(
+[
+[${points[i][0]},${points[i][1]}],
+[${points[i+1][0]},${points[i+1][1]}]
+],
+{
+color:'#38bdf8',
+weight:2,
+dashArray:'5,5'
+}).addTo(map);
+`;
+    }
 
     res.send(`
 <!DOCTYPE html>
@@ -853,16 +895,14 @@ L.marker([${lat}, ${lng}]).addTo(map)
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<title>الخريطة الحقيقية</title>
-
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 
 <style>
 body{
 margin:0;
-font-family:Arial;
 background:#08152e;
+font-family:Arial;
 color:white;
 }
 .title{
@@ -877,6 +917,12 @@ height:85vh;
 width:100%;
 border-top:2px solid #38bdf8;
 border-bottom:2px solid #38bdf8;
+}
+.panel{
+padding:10px;
+background:#0f172a;
+font-size:15px;
+text-align:center;
 }
 .btn{
 display:block;
@@ -894,7 +940,14 @@ font-size:18px;
 
 <body>
 
-<div class="title">🗺 الخريطة الحقيقية</div>
+<div class="title">🗺 الخريطة المطورة</div>
+
+<div class="panel">
+🟢 شغال |
+🟡 ضعيف |
+📶 خطوط الربط |
+📡 الأبراج: ${devices.length}
+</div>
 
 <div id="map"></div>
 
@@ -904,7 +957,7 @@ font-size:18px;
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
-var map = L.map('map').setView([15.35,44.20], 12);
+var map = L.map('map').setView([15.35,44.20], 11);
 
 L.tileLayer(
 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -913,6 +966,7 @@ maxZoom:19
 }).addTo(map);
 
 ${markers}
+${lines}
 
 setTimeout(()=>{
 location.reload();
