@@ -188,19 +188,55 @@ app.get("/devices", async (req, res) => {
 });
 
 // الأبراج والأكسسات
+// استبدل فقط Route /towers بهذا الكود
+
 app.get("/towers", async (req, res) => {
   try {
     const conn = await connectRouter();
 
     const arp = await conn.write("/ip/arp/print");
+    const neighbor = await conn.write("/ip/neighbor/print");
 
     await conn.close();
 
-    // فلترة فقط شبكة 172.16.0.0/16
-    const list = arp.filter(d =>
-      d.address &&
-      d.address.startsWith("172.16.")
-    );
+    const list = [];
+
+    // أجهزة ARP
+    arp.forEach(a => {
+      if (!a.address) return;
+      if (!a.address.startsWith("172.16.")) return;
+
+      let type = "جهاز شبكة";
+
+      const mac = (a["mac-address"] || "").toUpperCase();
+
+      if (mac.startsWith("04:18:D6")) type = "📡 Ubiquiti";
+      else if (mac.startsWith("4C:5E:0C")) type = "📶 MikroTik";
+      else if (mac.startsWith("F4:F2:6D")) type = "📡 TP-Link";
+      else if (mac.startsWith("00:E0:4C")) type = "📷 Camera";
+
+      list.push({
+        name: "جهاز مكتشف",
+        ip: a.address,
+        type: type,
+        status: "online",
+        last: "الآن"
+      });
+    });
+
+    // Neighbor Discovery
+    neighbor.forEach(n => {
+      if (!n.address) return;
+      if (!n.address.startsWith("172.16.")) return;
+
+      list.push({
+        name: n.identity || "MikroTik",
+        ip: n.address,
+        type: "🛰 " + (n.platform || "Router"),
+        status: "online",
+        last: "الآن"
+      });
+    });
 
     let rows = "";
 
@@ -208,12 +244,11 @@ app.get("/towers", async (req, res) => {
       rows += `
 <tr>
 <td>${i + 1}</td>
-<td>جهاز شبكة</td>
-<td>${d.address}</td>
-<td>172.16.0.0/16</td>
-<td>${d["mac-address"] || "-"}</td>
-<td style="color:#22c55e">متصل</td>
-<td>الآن</td>
+<td>${d.name}</td>
+<td>${d.ip}</td>
+<td>${d.type}</td>
+<td style="color:#22c55e;font-weight:bold">متصل</td>
+<td>${d.last}</td>
 </tr>
 `;
     });
@@ -235,9 +270,9 @@ color:white;
 }
 .title{
 font-size:34px;
+font-weight:bold;
 text-align:center;
 color:#38bdf8;
-font-weight:bold;
 margin-bottom:20px;
 }
 .card{
@@ -245,13 +280,13 @@ background:#1e293b;
 padding:18px;
 border-radius:18px;
 margin-bottom:15px;
-font-size:26px;
+font-size:24px;
 }
 .green{
 color:#22c55e;
 font-weight:bold;
 }
-input,select{
+input{
 width:100%;
 padding:14px;
 border:none;
@@ -269,18 +304,22 @@ overflow:hidden;
 th,td{
 padding:12px;
 text-align:center;
-font-size:15px;
+font-size:14px;
 border-bottom:1px solid #23344f;
 }
 th{
 background:#334155;
 }
-.note{
-margin-top:15px;
-background:#10243f;
+.btn{
+display:block;
+background:#38bdf8;
 padding:14px;
+text-align:center;
+color:white;
 border-radius:12px;
-color:#cbd5e1;
+text-decoration:none;
+margin-top:15px;
+font-size:18px;
 }
 </style>
 
@@ -296,6 +335,10 @@ row.innerText.toLowerCase().includes(input)
 : "none";
 });
 }
+
+setTimeout(()=>{
+location.reload();
+},10000);
 </script>
 
 </head>
@@ -308,20 +351,11 @@ row.innerText.toLowerCase().includes(input)
 <span class="green">${list.length}</span>
 </div>
 
-<div class="card">
-تم التصفية:
-<span class="green">172.16.0.0/16 فقط</span>
-</div>
-
 <input
 id="search"
 onkeyup="searchDevice()"
 placeholder="ابحث باسم أو IP..."
 >
-
-<select>
-<option>172.16.0.0/16 فقط</option>
-</select>
 
 <table>
 <thead>
@@ -329,7 +363,6 @@ placeholder="ابحث باسم أو IP..."
 <th>#</th>
 <th>الاسم</th>
 <th>IP</th>
-<th>البوابة</th>
 <th>النوع</th>
 <th>الحالة</th>
 <th>آخر ظهور</th>
@@ -341,10 +374,8 @@ ${rows}
 </tbody>
 </table>
 
-<div class="note">
-ℹ يتم عرض الأجهزة التي بوابتها ضمن النطاق:
-<b>172.16.0.0/16</b> فقط
-</div>
+<a class="btn" href="/map">📍 فتح الخريطة</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
 
 </body>
 </html>
