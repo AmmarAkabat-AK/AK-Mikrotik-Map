@@ -817,6 +817,117 @@ ${rows}
   }
 });
 
+// أضف هذا Route داخل server.js قبل app.listen
+
+app.get("/map-live", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+
+    await conn.close();
+
+    const devices = arp.filter(d =>
+      d.address &&
+      d.address.startsWith("172.16.")
+    );
+
+    let markers = "";
+
+    devices.forEach((d, i) => {
+      const lat = 15.35 + (i * 0.0025);
+      const lng = 44.20 + (i * 0.0025);
+
+      markers += `
+L.marker([${lat}, ${lng}]).addTo(map)
+.bindPopup(
+"<b>📡 جهاز شبكة</b><br>${d.address}<br>🟢 متصل"
+);
+`;
+    });
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>الخريطة الحقيقية</title>
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body{
+margin:0;
+font-family:Arial;
+background:#08152e;
+color:white;
+}
+.title{
+text-align:center;
+font-size:30px;
+font-weight:bold;
+padding:15px;
+color:#38bdf8;
+}
+#map{
+height:85vh;
+width:100%;
+border-top:2px solid #38bdf8;
+border-bottom:2px solid #38bdf8;
+}
+.btn{
+display:block;
+margin:10px;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+font-size:18px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="title">🗺 الخريطة الحقيقية</div>
+
+<div id="map"></div>
+
+<a class="btn" href="/alerts">🔔 التنبيهات</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+var map = L.map('map').setView([15.35,44.20], 12);
+
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{
+maxZoom:19
+}).addTo(map);
+
+${markers}
+
+setTimeout(()=>{
+location.reload();
+},10000);
+</script>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل تحميل الخريطة ❌");
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
 });
