@@ -507,7 +507,142 @@ ${rows}
 </html>
 `;
 }
+// أضف هذا Route داخل server.js قبل app.listen مباشرة
 
+app.get("/map", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+
+    await conn.close();
+
+    const devices = arp.filter(d =>
+      d.address &&
+      d.address.startsWith("172.16.")
+    );
+
+    let markers = "";
+
+    devices.forEach((d, i) => {
+      const x = 10 + (i % 4) * 22;
+      const y = 18 + Math.floor(i / 4) * 18;
+
+      markers += `
+<div class="point" style="left:${x}%;top:${y}%">
+<span>📡</span>
+<div class="label">${d.address}</div>
+</div>
+`;
+    });
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+body{
+background:#08152e;
+font-family:Arial;
+padding:15px;
+margin:0;
+color:white;
+}
+.title{
+font-size:34px;
+font-weight:bold;
+text-align:center;
+color:#38bdf8;
+margin-bottom:20px;
+}
+.card{
+background:#1e293b;
+padding:15px;
+border-radius:18px;
+margin-bottom:15px;
+font-size:22px;
+}
+.map{
+position:relative;
+width:100%;
+height:600px;
+background:linear-gradient(180deg,#10243f,#0b1628);
+border-radius:20px;
+overflow:hidden;
+border:2px solid #38bdf8;
+}
+.point{
+position:absolute;
+transform:translate(-50%,-50%);
+text-align:center;
+}
+.point span{
+font-size:28px;
+}
+.label{
+background:#1e293b;
+padding:4px 8px;
+border-radius:8px;
+font-size:12px;
+margin-top:4px;
+white-space:nowrap;
+}
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:15px;
+font-size:18px;
+}
+.note{
+margin-top:10px;
+color:#94a3b8;
+font-size:14px;
+text-align:center;
+}
+</style>
+
+<script>
+setTimeout(()=>{
+location.reload();
+},10000);
+</script>
+
+</head>
+<body>
+
+<div class="title">📍 خريطة الأجهزة</div>
+
+<div class="card">
+عدد الأجهزة المكتشفة: ${devices.length}
+</div>
+
+<div class="map">
+${markers}
+</div>
+
+<div class="note">
+يتم تحديث الخريطة تلقائيًا كل 10 ثواني
+</div>
+
+<a class="btn" href="/towers">📡 الأبراج والأكسسات</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل تحميل الخريطة ❌");
+  }
+});
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
 });
