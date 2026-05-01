@@ -3,7 +3,6 @@ const express = require("express");
 const cors = require("cors");
 const { RouterOSAPI } = require("node-routeros");
 const { createClient } = require("@supabase/supabase-js");
-const { exec } = require("child_process");
 
 const app = express();
 app.use(cors());
@@ -18,7 +17,7 @@ const supabase = createClient(
 );
 
 // اتصال MikroTik
-async function getConnection() {
+async function connectRouter() {
   const conn = new RouterOSAPI({
     host: process.env.MIKROTIK_HOST,
     user: process.env.MIKROTIK_USER,
@@ -32,101 +31,228 @@ async function getConnection() {
 
 // الصفحة الرئيسية
 app.get("/", (req, res) => {
-  res.send("AK MikroTik Scanner Live 🔥");
+  res.redirect("/dashboard");
+});
+
+// اختبار الاتصال
+app.get("/mikrotik-test", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const identity = await conn.write("/system/identity/print");
+
+    await conn.close();
+
+    res.json({
+      success: true,
+      router: identity[0].name
+    });
+
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Dashboard
 app.get("/dashboard", async (req, res) => {
-  res.redirect("/towers");
-});
-
-// Scanner حقيقي
-async function scanDevices() {
   try {
-    const conn = await getConnection();
+    const conn = await connectRouter();
 
+    const identity = await conn.write("/system/identity/print");
+    const hotspot = await conn.write("/ip/hotspot/active/print");
     const arp = await conn.write("/ip/arp/print");
-    const neighbors = await conn.write("/ip/neighbor/print");
 
     await conn.close();
 
-    // حفظ ARP
-    for (const d of arp) {
-      if (!d.address) continue;
-
-      await supabase
-        .from("devices")
-        .upsert({
-          ip: d.address,
-          company: d["mac-address"] || "Unknown",
-          customer_name: "جهاز مكتشف",
-          status: "online",
-          last_seen: new Date()
-        }, { onConflict: "ip" });
-    }
-
-    // حفظ Neighbor
-    for (const n of neighbors) {
-      if (!n.address) continue;
-
-      await supabase
-        .from("devices")
-        .upsert({
-          ip: n.address,
-          company: n.identity || "Network Device",
-          customer_name: "جهاز شبكة",
-          status: "online",
-          last_seen: new Date()
-        }, { onConflict: "ip" });
-    }
-
-    console.log("Scan Completed 🔥");
-
-  } catch (e) {
-    console.log("Scanner Error", e.message);
-  }
-}
-
-// تشغيل كل 30 ثانية
-setInterval(scanDevices, 30000);
-scanDevices();
-
-// صفحة الأبراج والأجهزة
-app.get("/towers", async (req, res) => {
-  const { data, error } = await supabase
-    .from("devices")
-    .select("*")
-    .order("last_seen", { ascending: false });
-
-  if (error) return res.send("DB Error ❌");
-
-  let rows = "";
-
-  data.forEach((d, i) => {
-    const color =
-      d.status === "online" ? "#22c55e" : "#ef4444";
-
-    rows += `
-<tr>
-<td>${i + 1}</td>
-<td>${d.customer_name || "-"}</td>
-<td>${d.ip || "-"}</td>
-<td>${d.company || "-"}</td>
-<td style="color:${color};font-weight:bold">
-${d.status}
-</td>
-<td>${d.last_seen || "-"}</td>
-</tr>
-`;
-  });
-
-  res.send(`
+    res.send(`
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>الأجهزة</title>
+<title>Dashboard</title>
+
+<style>
+body{
+background:#0f172a;
+font-family:Arial;
+padding:20px;
+margin:0;
+color:white;
+}
+.title{
+font-size:32px;
+font-weight:bold;
+text-align:center;
+color:#38bdf8;
+margin-bottom:20px;
+}
+.card{
+background:#1e293b;
+padding:18px;
+border-radius:15px;
+margin-bottom:15px;
+}
+.big{
+font-size:30px;
+font-weight:bold;
+color:#22c55e;
+}
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:12px;
+font-size:18px;
+}
+</style>
+</head>
+<body>
+
+<div class="title">🔥 لوحة التحكم</div>
+
+<div class="card">
+📡 اسم الشبكة<br>
+<div class="big">${identity[0].name}</div>
+</div>
+
+<div class="card">
+🟢 حالة الراوتر<br>
+<div class="big">متصل</div>
+</div>
+
+<div class="card">
+👥 المستخدمون الحاليون<br>
+<div class="big">${hotspot.length}</div>
+</div>
+
+<div class="card">
+📶 الأجهزة المكتشفة<br>
+<div class="big">${arp.length}</div>
+</div>
+
+<div class="card">
+🕒 آخر تحديث<br>
+<div class="big">${new Date().toLocaleString()}</div>
+</div>
+
+<a class="btn" href="/devices">📱 العملاء</a>
+<a class="btn" href="/towers">📡 الأبراج والأكسسات</a>
+<a class="btn" href="/mikrotik-test">🧪 اختبار الاتصال</a>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل الاتصال بالراوتر ❌");
+  }
+});
+
+// العملاء الحاليون
+app.get("/devices", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const users = await conn.write("/ip/hotspot/active/print");
+
+    await conn.close();
+
+    let rows = "";
+
+    users.forEach((u, i) => {
+      rows += `
+<tr>
+<td>${i + 1}</td>
+<td>${u.user || "-"}</td>
+<td>${u.address || "-"}</td>
+<td>${u["mac-address"] || "-"}</td>
+<td style="color:#22c55e">متصل</td>
+<td>${u.uptime || "-"}</td>
+</tr>
+`;
+    });
+
+    res.send(tablePage("📱 العملاء المتصلون", users.length, rows));
+
+  } catch (error) {
+    res.send("فشل قراءة العملاء ❌");
+  }
+});
+
+// الأبراج والأكسسات
+app.get("/towers", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+    const neighbor = await conn.write("/ip/neighbor/print");
+
+    await conn.close();
+
+    const list = [];
+
+    arp.forEach(a => {
+      if (a.address) {
+        list.push({
+          name: "جهاز شبكة",
+          ip: a.address,
+          type: a["mac-address"] || "Unknown",
+          status: "online",
+          last: "الآن"
+        });
+      }
+    });
+
+    neighbor.forEach(n => {
+      if (n.address) {
+        list.push({
+          name: n.identity || "MikroTik",
+          ip: n.address,
+          type: n.platform || "Router",
+          status: "online",
+          last: "الآن"
+        });
+      }
+    });
+
+    let rows = "";
+
+    list.forEach((d, i) => {
+      rows += `
+<tr>
+<td>${i + 1}</td>
+<td>${d.name}</td>
+<td>${d.ip}</td>
+<td>${d.type}</td>
+<td style="color:#22c55e">متصل</td>
+<td>${d.last}</td>
+</tr>
+`;
+    });
+
+    res.send(tablePage("📡 الأبراج والأكسسات", list.length, rows));
+
+  } catch (error) {
+    res.send("فشل قراءة الأجهزة ❌");
+  }
+});
+
+// قالب الجدول
+function tablePage(title, total, rows) {
+return `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
 <style>
 body{
@@ -137,7 +263,7 @@ margin:0;
 color:white;
 }
 .title{
-font-size:28px;
+font-size:30px;
 font-weight:bold;
 text-align:center;
 color:#38bdf8;
@@ -173,6 +299,17 @@ border-bottom:1px solid #334155;
 th{
 background:#334155;
 }
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:15px;
+font-size:18px;
+}
 </style>
 
 <script>
@@ -194,16 +331,16 @@ location.reload();
 </head>
 <body>
 
-<div class="title">📡 الأبراج والأكسسات</div>
+<div class="title">${title}</div>
 
 <div class="card">
-إجمالي الأجهزة: ${data.length}
+إجمالي الأجهزة: ${total}
 </div>
 
 <input
 id="search"
 onkeyup="searchDevice()"
-placeholder="ابحث باسم أو IP..."
+placeholder="ابحث..."
 >
 
 <table>
@@ -223,10 +360,12 @@ ${rows}
 </tbody>
 </table>
 
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+
 </body>
 </html>
-  `);
-});
+`;
+}
 
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
