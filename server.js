@@ -1,4 +1,9 @@
 require("dotenv").config();
+// أضف هذا أعلى الملف بعد require مباشرة
+
+let alerts = [];
+let lastSeen = {};
+
 const express = require("express");
 const cors = require("cors");
 const { RouterOSAPI } = require("node-routeros");
@@ -643,6 +648,175 @@ ${markers}
     res.send("فشل تحميل الخريطة ❌");
   }
 });
+
+
+
+
+// أضف هذا Route داخل server.js قبل app.listen
+
+app.get("/alerts", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+
+    await conn.close();
+
+    const current = {};
+
+    arp.forEach(d => {
+      if (d.address && d.address.startsWith("172.16.")) {
+        current[d.address] = true;
+      }
+    });
+
+    // اكتشاف الأجهزة المفقودة
+    Object.keys(lastSeen).forEach(ip => {
+      if (!current[ip]) {
+        alerts.unshift({
+          ip: ip,
+          status: "🔴 منقطع",
+          time: new Date().toLocaleString()
+        });
+      }
+    });
+
+    // تحديث القائمة
+    lastSeen = current;
+
+    let rows = "";
+
+    alerts.slice(0, 30).forEach((a, i) => {
+      rows += `
+<tr>
+<td>${i + 1}</td>
+<td>${a.ip}</td>
+<td style="color:#ef4444">${a.status}</td>
+<td>${a.time}</td>
+</tr>
+`;
+    });
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+body{
+background:#08152e;
+font-family:Arial;
+padding:15px;
+margin:0;
+color:white;
+}
+.title{
+font-size:34px;
+font-weight:bold;
+text-align:center;
+color:#38bdf8;
+margin-bottom:20px;
+}
+.card{
+background:#1e293b;
+padding:18px;
+border-radius:18px;
+margin-bottom:15px;
+font-size:24px;
+}
+.red{
+color:#ef4444;
+font-weight:bold;
+}
+.green{
+color:#22c55e;
+font-weight:bold;
+}
+table{
+width:100%;
+border-collapse:collapse;
+background:#12233f;
+border-radius:15px;
+overflow:hidden;
+}
+th,td{
+padding:12px;
+text-align:center;
+font-size:14px;
+border-bottom:1px solid #23344f;
+}
+th{
+background:#334155;
+}
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:15px;
+font-size:18px;
+}
+.flash{
+animation:blink 1s infinite;
+}
+@keyframes blink{
+50%{opacity:0.3;}
+}
+</style>
+
+<script>
+setTimeout(()=>{
+location.reload();
+},10000);
+</script>
+
+</head>
+<body>
+
+<div class="title">🔔 التنبيهات والأعطال</div>
+
+<div class="card">
+عدد التنبيهات:
+<span class="red">${alerts.length}</span>
+</div>
+
+<div class="card flash">
+${alerts.length > 0 ? "🔴 يوجد انقطاع أجهزة" : "🟢 لا يوجد أعطال"}
+</div>
+
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>IP</th>
+<th>الحالة</th>
+<th>الوقت</th>
+</tr>
+</thead>
+
+<tbody>
+${rows}
+</tbody>
+</table>
+
+<a class="btn" href="/map">📍 الخريطة</a>
+<a class="btn" href="/towers">📡 الأبراج</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل تحميل التنبيهات ❌");
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
 });
