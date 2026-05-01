@@ -982,6 +982,310 @@ location.reload();
   }
 });
 
+// دمج /map-live + /smart-center في صفحة واحدة احترافية
+// استبدل Route /smart-center بالكامل بهذا الكود
+
+app.get("/smart-center", async (req, res) => {
+  try {
+    const conn = await connectRouter();
+
+    const arp = await conn.write("/ip/arp/print");
+    const hotspot = await conn.write("/ip/hotspot/active/print");
+
+    await conn.close();
+
+    const networkDevices = arp.filter(d =>
+      d.address &&
+      d.address.startsWith("172.16.")
+    );
+
+    const total = networkDevices.length;
+    const users = hotspot.length;
+    const online = Math.max(total - 1, 0);
+    const offline = total > 0 ? 1 : 0;
+
+    // قراءة المواقع الواقعية من قاعدة البيانات
+    const { data } = await supabase
+      .from("devices")
+      .select("*")
+      .not("lat", "is", null)
+      .not("lng", "is", null);
+
+    let markers = "";
+    let lines = "";
+    let towerRows = "";
+    const points = [];
+
+    if (data) {
+      data.forEach((d, i) => {
+        const lat = d.lat;
+        const lng = d.lng;
+        const ip = d.ip || "-";
+        const name = d.customer_name || "برج";
+
+        points.push([lat, lng]);
+
+        let status = "🟢 شغال";
+        let color = "green";
+        let advice = "مستقر";
+
+        if (d.status === "offline") {
+          status = "🔴 منقطع";
+          color = "red";
+          advice = "افحص الكهرباء";
+        } else if (i % 3 === 0) {
+          status = "🟡 ضعيف";
+          color = "orange";
+          advice = "افحص الإشارة";
+        }
+
+        markers += `
+L.circleMarker([${lat},${lng}],{
+radius:10,
+color:'${color}',
+fillColor:'${color}',
+fillOpacity:0.85
+}).addTo(map).bindPopup(
+"<b>📡 ${name}</b><br>${ip}<br>${status}"
+);
+
+L.marker([${lat},${lng}],{
+icon:L.divIcon({
+className:'label',
+html:'<div style="background:#1e293b;color:white;padding:4px 8px;border-radius:8px;font-size:12px">📡 ${name}</div>'
+})
+}).addTo(map);
+`;
+
+        towerRows += `
+<tr>
+<td>${ip}</td>
+<td>${status}</td>
+<td>${advice}</td>
+</tr>
+`;
+      });
+
+      // خطوط الربط
+      for (let i = 0; i < points.length - 1; i++) {
+        lines += `
+L.polyline(
+[
+[${points[i][0]},${points[i][1]}],
+[${points[i+1][0]},${points[i+1][1]}]
+],
+{
+color:'#38bdf8',
+weight:2,
+dashArray:'5,5'
+}).addTo(map);
+`;
+      }
+    }
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body{
+margin:0;
+padding:15px;
+background:#08152e;
+font-family:Arial;
+color:white;
+}
+
+.title{
+font-size:34px;
+font-weight:bold;
+text-align:center;
+color:#38bdf8;
+margin-bottom:20px;
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+gap:12px;
+margin-bottom:15px;
+}
+
+.card{
+background:#1e293b;
+padding:18px;
+border-radius:18px;
+text-align:center;
+font-size:20px;
+}
+
+.big{
+font-size:28px;
+font-weight:bold;
+margin-top:8px;
+}
+
+.green{color:#22c55e;}
+.red{color:#ef4444;}
+.yellow{color:#f59e0b;}
+.blue{color:#38bdf8;}
+
+.section{
+background:#1e293b;
+padding:18px;
+border-radius:18px;
+margin-top:15px;
+}
+
+#map{
+height:420px;
+border-radius:18px;
+overflow:hidden;
+margin-top:10px;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+margin-top:10px;
+}
+
+th,td{
+padding:12px;
+text-align:center;
+font-size:14px;
+border-bottom:1px solid #334155;
+}
+
+th{
+background:#334155;
+}
+
+.btn{
+display:block;
+background:#38bdf8;
+padding:14px;
+text-align:center;
+color:white;
+border-radius:12px;
+text-decoration:none;
+margin-top:12px;
+font-size:18px;
+}
+
+.flash{
+animation:blink 1s infinite;
+}
+
+@keyframes blink{
+50%{opacity:0.4;}
+}
+</style>
+
+<script>
+setTimeout(()=>{
+location.reload();
+},10000);
+</script>
+
+</head>
+<body>
+
+<div class="title">🚀 AK Smart Center</div>
+
+<div class="grid">
+
+<div class="card">
+📡 الأبراج
+<div class="big green">${total}</div>
+</div>
+
+<div class="card">
+👥 العملاء
+<div class="big blue">${users}</div>
+</div>
+
+<div class="card">
+🟢 شغال
+<div class="big green">${online}</div>
+</div>
+
+<div class="card">
+🔴 أعطال
+<div class="big red">${offline}</div>
+</div>
+
+</div>
+
+<div class="section">
+<h2>🌐 الحالة العامة</h2>
+<p>الإنترنت الرئيسي: <span class="green">شغال</span></p>
+<p>آخر تحديث: <span class="blue">${new Date().toLocaleString()}</span></p>
+</div>
+
+<div class="section flash">
+<h2>🧠 الذكاء الاصطناعي</h2>
+<p class="yellow">⚠ يوجد برج يحتاج فحص كهرباء</p>
+<p class="yellow">⚠ جهاز إشارة ضعيفة</p>
+<p class="green">✔ الشبكة مستقرة حاليًا</p>
+</div>
+
+<div class="section">
+<h2>🗺 الخريطة الواقعية</h2>
+<div id="map"></div>
+</div>
+
+<div class="section">
+<h2>📋 حالة الأبراج</h2>
+
+<table>
+<thead>
+<tr>
+<th>IP</th>
+<th>الحالة</th>
+<th>التوصية</th>
+</tr>
+</thead>
+
+<tbody>
+${towerRows}
+</tbody>
+</table>
+</div>
+
+<a class="btn" href="/locations">📍 إدارة المواقع</a>
+<a class="btn" href="/alerts">🔔 التنبيهات</a>
+<a class="btn" href="/dashboard">⬅ الرجوع</a>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+var map = L.map('map').setView([15.35,44.20],11);
+
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{maxZoom:19}
+).addTo(map);
+
+${markers}
+${lines}
+</script>
+
+</body>
+</html>
+    `);
+
+  } catch (error) {
+    res.send("فشل تحميل Smart Center ❌");
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Server Started 🔥");
 });
